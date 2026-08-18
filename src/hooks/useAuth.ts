@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/authApi';
 import { getSession, clearSession, saveSession } from '../services/authStorage';
 import type { User } from '../types/user';
+import { profileQueryKeys } from './useProfile';
 
 export const authQueryKeys = {
   all: ['auth'] as const,
@@ -47,16 +48,28 @@ export const useLogout = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: authApi.logout,
-    onSuccess: async () => {
+    mutationFn: async () => {
       await clearSession();
       queryClient.setQueryData(authQueryKeys.currentUser(), undefined);
+      queryClient.setQueryData(profileQueryKeys.current(), undefined);
       await queryClient.removeQueries({
         queryKey: authQueryKeys.currentUser(),
+      });
+      await queryClient.removeQueries({
+        queryKey: profileQueryKeys.current(),
       });
       await queryClient.invalidateQueries({
         queryKey: authQueryKeys.all,
       });
+      await queryClient.invalidateQueries({
+        queryKey: profileQueryKeys.all,
+      });
+
+      try {
+        await authApi.logout();
+      } catch {
+        // Logout is a local session operation for this MVP; clear local state immediately.
+      }
     },
   });
 };

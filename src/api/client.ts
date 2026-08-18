@@ -6,6 +6,9 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 
+import { getSession, clearSession } from '../services/authStorage';
+import { queryClient } from '../config/queryClient';
+
 declare const process: {
   env?: Record<string, string | undefined>;
 };
@@ -87,7 +90,13 @@ export const createApiClient = (
     },
   });
 
-  client.interceptors.request.use((request: InternalAxiosRequestConfig) => {
+  client.interceptors.request.use(async (request: InternalAxiosRequestConfig) => {
+    // Attach stored Authorization token to requests
+    const session = await getSession();
+    if (session?.token) {
+      request.headers.Authorization = `Bearer ${session.token}`;
+    }
+
     if (request.headers) {
       request.headers.Accept = 'application/json';
       request.headers['Content-Type'] = 'application/json';
@@ -98,7 +107,15 @@ export const createApiClient = (
 
   client.interceptors.response.use(
     (response: AxiosResponse) => response,
-    (error: unknown) => Promise.reject(normalizeError(error)),
+    async (error: unknown) => {
+      // Clear session and invalidate auth queries on 401 Unauthorized
+      if (isAxiosError(error) && error.response?.status === 401) {
+        await clearSession();
+        await queryClient.removeQueries({ queryKey: ['auth'] });
+      }
+
+      return Promise.reject(normalizeError(error));
+    },
   );
 
   return client;

@@ -6,6 +6,7 @@ import { Pressable, Text } from 'react-native';
 import { authApi } from '../src/api/authApi';
 import * as authHooks from '../src/hooks/useAuth';
 import { authQueryKeys } from '../src/hooks/useAuth';
+import { profileQueryKeys } from '../src/hooks/useProfile';
 import RootNavigator from '../src/navigation/RootNavigator';
 import { clearSession, getSession, saveSession } from '../src/services/authStorage';
 import type { User } from '../src/types/user';
@@ -243,11 +244,12 @@ describe('ClaimX authentication flow', () => {
     client.clear();
   });
 
-  it('useLogout clears the session and current-user query state', async () => {
+  it('useLogout clears the session, auth state, and profile state', async () => {
     const client = createTestQueryClient();
     mockedAuthApi.logout.mockResolvedValue(undefined);
     mockedClearSession.mockResolvedValue(undefined);
     client.setQueryData(authQueryKeys.currentUser(), mockUser);
+    client.setQueryData(profileQueryKeys.current(), mockUser);
 
     const Probe = () => {
       const logoutMutation = authHooks.useLogout();
@@ -275,6 +277,51 @@ describe('ClaimX authentication flow', () => {
     expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1);
     expect(mockedClearSession).toHaveBeenCalledTimes(1);
     expect(client.getQueryData(authQueryKeys.currentUser())).toBeUndefined();
+    expect(client.getQueryData(profileQueryKeys.current())).toBeUndefined();
+
+    await act(async () => {
+      tree.unmount();
+    });
+    client.clear();
+  });
+
+  it('useLogout transitions the app to the unauthenticated state', async () => {
+    const client = createTestQueryClient();
+    mockedAuthApi.logout.mockResolvedValue(undefined);
+    mockedClearSession.mockResolvedValue(undefined);
+    client.setQueryData(authQueryKeys.currentUser(), mockUser);
+
+    const Probe = () => {
+      const { data: currentUser } = authHooks.useCurrentUser();
+      const logoutMutation = authHooks.useLogout();
+
+      return (
+        <>
+          <Text testID="auth-state">{currentUser ? 'authenticated' : 'unauthenticated'}</Text>
+          <Pressable testID="logout-probe" onPress={() => logoutMutation.mutate()}>
+            <Text>Logout</Text>
+          </Pressable>
+        </>
+      );
+    };
+
+    const { tree } = await renderWithClient(
+      <QueryClientProvider client={client}>
+        <Probe />
+      </QueryClientProvider>,
+      client,
+    );
+
+    expect(tree.root.findByProps({ testID: 'auth-state' }).props.children).toBe('authenticated');
+
+    await act(async () => {
+      tree.root.findByProps({ testID: 'logout-probe' }).props.onPress();
+    });
+
+    await flushAsync();
+
+    expect(client.getQueryData(authQueryKeys.currentUser())).toBeUndefined();
+    expect(tree.root.findByProps({ testID: 'auth-state' }).props.children).toBe('unauthenticated');
 
     await act(async () => {
       tree.unmount();
